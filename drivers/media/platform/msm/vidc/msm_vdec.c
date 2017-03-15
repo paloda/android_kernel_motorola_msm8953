@@ -2361,7 +2361,7 @@ static int try_set_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 	/* Small helper macro for quickly getting a control and err checking */
 #define TRY_GET_CTRL(__ctrl_id) ({ \
 		struct v4l2_ctrl *__temp; \
-		__temp = get_ctrl_from_cluster( \
+		__temp = get_ctrl_from_cluster(\
 			__ctrl_id, \
 			ctrl->cluster, ctrl->ncontrols); \
 		if (!__temp) { \

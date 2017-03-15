@@ -5,6 +5,7 @@
  *  SD support Copyright (C) 2004 Ian Molton, All Rights Reserved.
  *  Copyright (C) 2005-2008 Pierre Ossman, All Rights Reserved.
  *  MMCv4 support Copyright (C) 2006 Philip Langdale, All Rights Reserved.
+ *  Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -1800,8 +1801,13 @@ int mmc_read_bkops_status(struct mmc_card *card)
 	if (err)
 		goto out;
 
-	card->ext_csd.raw_bkops_status = ext_csd[EXT_CSD_BKOPS_STATUS];
-	card->ext_csd.raw_exception_status = ext_csd[EXT_CSD_EXP_EVENTS_STATUS];
+	card->ext_csd.raw_bkops_status = ext_csd[EXT_CSD_BKOPS_STATUS] &
+			MMC_BKOPS_URGENCY_MASK;
+	card->ext_csd.raw_exception_status =
+			ext_csd[EXT_CSD_EXP_EVENTS_STATUS] & (EXT_CSD_URGENT_BKOPS |
+			EXT_CSD_DYNCAP_NEEDED |
+			EXT_CSD_SYSPOOL_EXHAUSTED
+			| EXT_CSD_PACKED_FAILURE);
 out:
 	kfree(ext_csd);
 	return err;

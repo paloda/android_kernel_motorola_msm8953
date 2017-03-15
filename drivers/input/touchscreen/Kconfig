@@ -1222,4 +1222,15 @@ config TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE_MMI
 
 source "drivers/input/touchscreen/gt9xx/Kconfig"
 
+config TOUCHSCREEN_FT5346
+	bool "FOCALTECH touchpanel FT5346 series"
+	depends on I2C
+
+source "drivers/input/touchscreen/FT5346/Kconfig"
+
+config TOUCHSCREEN_ATMEL308U
+	bool "ATMEL touchpanel 308U series"
+	depends on I2C
+
+source "drivers/input/touchscreen/Atmel308U/Kconfig"
 endif

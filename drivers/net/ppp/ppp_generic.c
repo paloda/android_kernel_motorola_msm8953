@@ -2,6 +2,7 @@
  * Generic PPP layer for Linux.
  *
  * Copyright 1999-2002 Paul Mackerras.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  *  This program is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU General Public License
@@ -2341,6 +2342,8 @@ ppp_unregister_channel(struct ppp_channel *chan)
 	spin_lock_bh(&pn->all_channels_lock);
 	list_del(&pch->list);
 	spin_unlock_bh(&pn->all_channels_lock);
+	put_net(pch->chan_net);
+	pch->chan_net = NULL;
 
 	pch->file.dead = 1;
 	wake_up_interruptible(&pch->file.rwait);

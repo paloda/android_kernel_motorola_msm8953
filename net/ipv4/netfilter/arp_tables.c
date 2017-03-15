@@ -7,6 +7,7 @@
  *
  * Copyright (C) 2002 David S. Miller (davem@redhat.com)
  * Copyright (C) 2006-2009 Patrick McHardy <kaber@trash.net>
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -563,8 +564,8 @@ static inline int check_entry_size_and_hooks(struct arpt_entry *e,
 	int err;
 
 	if ((unsigned long)e % __alignof__(struct arpt_entry) != 0 ||
-	    (unsigned char *)e + sizeof(struct arpt_entry) >= limit ||
-	    (unsigned char *)e + e->next_offset > limit) {
+		(unsigned char *)e + sizeof(struct arpt_entry) >= limit ||
+		(unsigned char *)e + e->next_offset > limit) {
 		duprintf("Bad offset %p\n", e);
 		return -EINVAL;
 	}
@@ -784,7 +785,7 @@ static int copy_entries_to_user(unsigned int total_size,
 
 	/* FIXME: use iterator macros --RR */
 	/* ... then go back and fix counters and names */
-	for (off = 0, num = 0; off < total_size; off += e->next_offset, num++){
+	for (off = 0, num = 0; off < total_size; off += e->next_offset, num++) {
 		const struct xt_entry_target *t;
 
 		e = (struct arpt_entry *)(loc_cpu_entry + off);
@@ -1224,8 +1225,8 @@ check_compat_entry_size_and_hooks(struct compat_arpt_entry *e,
 
 	duprintf("check_compat_entry_size_and_hooks %p\n", e);
 	if ((unsigned long)e % __alignof__(struct compat_arpt_entry) != 0 ||
-	    (unsigned char *)e + sizeof(struct compat_arpt_entry) >= limit ||
-	    (unsigned char *)e + e->next_offset > limit) {
+		(unsigned char *)e + sizeof(struct compat_arpt_entry) >= limit ||
+		(unsigned char *)e + e->next_offset > limit) {
 		duprintf("Bad offset %p, limit = %p\n", e, limit);
 		return -EINVAL;
 	}

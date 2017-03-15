@@ -1,4 +1,5 @@
 /* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2017 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -55,8 +56,8 @@
 #include "debug.h"
 #include "xhci.h"
 
-#define DWC3_IDEV_CHG_MAX 1500
-#define DWC3_IDEV_CHG_MIN 500
+#define DWC3_IDEV_CHG_MAX 2000
+#define DWC3_IDEV_SDP_CHG_MAX 500
 #define DWC3_HVDCP_CHG_MAX 1800
 
 /* AHB2PHY register offsets */
@@ -222,7 +223,6 @@ struct dwc3_msm {
 	enum usb_otg_state	otg_state;
 	enum usb_chg_state	chg_state;
 	int			pmic_id_irq;
-	int			usb_id_gpio;
 	struct work_struct	bus_vote_w;
 	unsigned int		bus_vote;
 	u32			bus_perf_client;
@@ -3062,111 +3062,32 @@ static int dwc3_msm_get_clk_gdsc(struct dwc3_msm *mdwc)
 	return 0;
 }
 
-static void dwc3_chg_check_timer_func(unsigned long data)
-{
-	struct dwc3_msm *mdwc = (struct dwc3_msm *) data;
-	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
+static int usb_oem_is_kpoc;
 
-	if (dwc->gadget.speed == USB_SPEED_UNKNOWN && mdwc->vbus_active &&
-			mdwc->current_max < DWC3_IDEV_CHG_MIN) {
-		dev_err(mdwc->dev, "Fall back to min charging limit\n");
-		dwc3_msm_gadget_vbus_draw(mdwc, DWC3_IDEV_CHG_MIN);
+int into_charger_mode(struct dwc3_msm *mdwc)
+{
+	int ret;
+	char *cmdline_fastmmi = NULL;
+	char *temp;
+
+	cmdline_fastmmi = strstr(saved_command_line, "androidboot.mode=");
+	if (cmdline_fastmmi != NULL) {
+		temp = cmdline_fastmmi + strlen("androidboot.mode=");
+		ret = strncmp(temp, "charger", strlen("charger"));
+		if (ret == 0) {
+			pr_err("into charger mode\n");
+			usb_oem_is_kpoc = 1;
+			return 1;/* charger mode*/
+		} else {
+			pr_err("others modes\n");
+			usb_oem_is_kpoc = 0;
+			return 2;/* Others mode*/
+		}
 	}
-}
-
-static int dwc3_busvoting_show(struct seq_file *s, void *unused)
-{
-	struct dwc3_msm *mdwc = s->private;
-
-	if (mdwc->disable_bus_vote)
-		seq_puts(s, "true\n");
-	else
-		seq_puts(s, "false\n");
-
+	pr_err("has no androidboot.mode \n");
 	return 0;
 }
 
-static int dwc3_busvoting_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, dwc3_busvoting_show, inode->i_private);
-}
-
-static ssize_t dwc3_busvoting_write(struct file *file, const char __user *ubuf,
-				size_t count, loff_t *ppos)
-{
-	struct seq_file *s = file->private_data;
-	struct dwc3_msm *mdwc = s->private;
-	char buf[8];
-	int ret;
-
-	memset(buf, 0x00, sizeof(buf));
-
-	if (copy_from_user(&buf, ubuf, min_t(size_t, sizeof(buf) - 1, count)))
-		return -EFAULT;
-
-	if (!strncmp(buf, "Y", 1) || !strncmp(buf, "true", 4)) {
-		if (mdwc->bus_perf_client && !mdwc->disable_bus_vote) {
-			mdwc->bus_vote = 0;
-			ret = msm_bus_scale_client_update_request(
-						mdwc->bus_perf_client,
-						mdwc->bus_vote);
-			if (ret)
-				dev_err(mdwc->dev, "Failed to clear vote\n");
-		}
-		mdwc->disable_bus_vote = true;
-	} else if (!strncmp(buf, "N", 1) || !strncmp(buf, "false", 5)) {
-		if (mdwc->bus_perf_client && mdwc->disable_bus_vote) {
-			mdwc->bus_vote = 1;
-			ret = msm_bus_scale_client_update_request(
-					mdwc->bus_perf_client,
-					mdwc->bus_vote);
-			if (ret)
-				dev_err(mdwc->dev, "Failed to set vote\n");
-		}
-		mdwc->disable_bus_vote = false;
-	}
-
-	return count;
-}
-
-const struct file_operations dwc3_busvoting_fops = {
-	.open = dwc3_busvoting_open,
-	.read = seq_read,
-	.write = dwc3_busvoting_write,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-static int dwc3_usbid_enable_gpio_pull(struct dwc3_msm *dwc3, int enable)
-{
-	int err = 0;
-	/* pin ctl */
-	struct pinctrl *pinctrl;
-	struct pinctrl_state *gpio_state;
-
-	if (!dwc3 || !dwc3->usb_id_gpio)
-		return 0;
-
-	pinctrl = devm_pinctrl_get(dwc3->dev);
-	if (IS_ERR_OR_NULL(pinctrl)) {
-		pr_err("%s:Getting pinctrl handle failed \r\n", __func__);
-		return -EINVAL;
-	}
-
-	if (enable)
-		gpio_state = pinctrl_lookup_state(pinctrl, "usbid_default");
-	else
-		gpio_state = pinctrl_lookup_state(pinctrl, "usbid_sleep");
-
-	if (pinctrl && gpio_state) {
-		err = pinctrl_select_state(pinctrl, gpio_state);
-		if (err) {
-			pr_err("pinctrl usb id state, err=%d\n",  err);
-			return -EINVAL;
-		}
-	}
-	return 1;
-}
 
 static int dwc3_msm_probe(struct platform_device *pdev)
 {
@@ -3456,6 +3377,9 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 	if (of_property_read_u32(node, "mmi,qos_latency",
 				&mdwc->qos_latency))
 		mdwc->qos_latency = -1;
+
+	mdwc->detect_dpdm_floating = of_property_read_bool(node,
+				"qcom,detect-dpdm-floating");
 
 	dwc3_set_notifier(&dwc3_msm_notify_event);
 
@@ -3997,6 +3921,8 @@ skip_psy_type:
 
 	if (mdwc->chg_type == DWC3_CDP_CHARGER)
 		mA = DWC3_IDEV_CHG_MAX;
+	else
+		mA = DWC3_IDEV_SDP_CHG_MAX;
 
 	/* Save bc1.2 max_curr if type-c charger later moves to diff mode */
 	mdwc->bc1p2_current_max = mA;
@@ -4042,7 +3968,6 @@ psy_error:
 static void dwc3_check_float_lines(struct dwc3_msm *mdwc)
 {
 	int dpdm;
-	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 
 	dev_dbg(mdwc->dev, "%s: Check linestate\n", __func__);
 	dwc3_msm_gadget_vbus_draw(mdwc, 0);
@@ -4054,7 +3979,7 @@ static void dwc3_check_float_lines(struct dwc3_msm *mdwc)
 		mdwc->chg_type = DWC3_PROPRIETARY_CHARGER;
 		mdwc->otg_state = OTG_STATE_B_IDLE;
 		pm_runtime_put_sync(mdwc->dev);
-		dbg_event(dwc->ctrl_num, 0xFF, "FLT psync",
+		dbg_event(0xFF, "FLT psync",
 				atomic_read(&mdwc->dev->power.usage_count));
 	} else if (dpdm) {
 		dev_dbg(mdwc->dev, "%s:invalid linestate:%x\n", __func__, dpdm);
@@ -4181,11 +4106,23 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				break;
 			case DWC3_CDP_CHARGER:
 			case DWC3_SDP_CHARGER:
+
+			if (usb_oem_is_kpoc) {
+				 mdwc->chg_type = DWC3_DCP_CHARGER;
+				 mdwc->otg_state = OTG_STATE_B_IDLE;
+				 dwc3_msm_gadget_vbus_draw(mdwc, 500);
+				 work = 0;
+				 atomic_set(&dwc->in_lpm, 1);
+				 pm_relax(mdwc->dev);
+				 pm_runtime_put_sync(mdwc->dev);
+			} else {
 				atomic_set(&dwc->in_lpm, 0);
 				pm_runtime_set_active(mdwc->dev);
 				pm_runtime_enable(mdwc->dev);
 				pm_runtime_get_noresume(mdwc->dev);
 				dwc3_initialize(mdwc);
+				 dwc3_msm_gadget_vbus_draw(mdwc,
+						DWC3_IDEV_SDP_CHG_MAX);
 				/* check dp/dm for SDP & runtime_put if !SDP */
 				if (mdwc->detect_dpdm_floating) {
 					dwc3_check_float_lines(mdwc);
@@ -4197,6 +4134,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				dbg_event(dwc->ctrl_num, 0xFF, "Undef SDP",
 					atomic_read(
 					&mdwc->dev->power.usage_count));
+			}
 				break;
 			default:
 				WARN_ON(1);
@@ -4249,6 +4187,18 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				 * OTG_STATE_B_PERIPHERAL state on cable
 				 * disconnect or in bus suspend.
 				 */
+
+			 if (usb_oem_is_kpoc) {
+				mdwc->chg_type = DWC3_DCP_CHARGER;
+				mdwc->otg_state = OTG_STATE_B_IDLE;
+				dwc3_msm_gadget_vbus_draw(mdwc, 500);
+				work = 0;
+				atomic_set(&dwc->in_lpm, 1);
+				pm_relax(mdwc->dev);
+				pm_runtime_put_sync(mdwc->dev);
+			 } else {
+				 dwc3_msm_gadget_vbus_draw(mdwc,
+						500);
 				pm_runtime_get_sync(mdwc->dev);
 				dbg_event(dwc->ctrl_num, 0xFF, "CHG gsync",
 					atomic_read(
@@ -4263,6 +4213,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 				mdwc->otg_state = OTG_STATE_B_PERIPHERAL;
 				work = 1;
 				break;
+			}
 			/* fall through */
 			default:
 				break;
